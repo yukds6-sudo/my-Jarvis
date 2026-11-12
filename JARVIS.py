@@ -27,7 +27,7 @@ if user_input:
                 contents = text_prompt
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction="너는 초등학생 주인님을 돕는 AI 비서 자비스야. 특수문자 없이 자연스러운 말투로 대답해줘."
