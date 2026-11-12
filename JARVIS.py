@@ -27,12 +27,12 @@ if user_input:
             else:
                 contents = text_prompt
 
-            # 무료 한도가 가장 넉넉하고 빠른 모델 사용 (검색 옵션 제거로 429 방지)
+            # 구글이 공식 안내한 최신 모델 사용
             response = client.models.generate_content(
-                model="gemini-3.8-flash-lite",
+                model="gemini-3.8-flash",
                 contents=contents,
                 config=types.GenerateContentConfig(
-                    system_instruction="너는 초등학생 주인님을 돕는 똑똑한 AI 비서 자비스야. 특수문자(*, # 등) 없이 자연스러운 말투로 대답해줘."
+                    system_instruction="너는 주인님을 돕는 똑똑한 AI 자비스야. 특수문자(*, # 등) 없이 자연스러운 말투로 대답해줘."
                 )
             )
 
@@ -43,4 +43,4 @@ if user_input:
             st.audio(sound_fp, format="audio/mp3", autoplay=True)
 
         except Exception as e:
-            st.error(f"오류가 발생했어요! (상세 이유: {e})")
+            st.error(f"잠시 문제가 생겼어요! (상세 이유: {e})")
