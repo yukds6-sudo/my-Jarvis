@@ -1,73 +1,51 @@
 import streamlit as st
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from gtts import gTTS
 import io
-import time
 
 st.set_page_config(page_title="자비스", page_icon="🎙️")
 st.title("🎙️ AI 비서 자비스")
-st.caption("마이크 버튼을 누르고 말하거나, 아래에 글자로 질문해 보세요!")
 
-API_KEY = st.secrets["GEMINI_API_KEY"]
-client = genai.Client(api_key=API_KEY)
+# 화면 첫 인사 멘트
+st.info("안녕하세요 저는 AI 자비스입니다.")
 
-audio_value = st.audio_input("🎤 마이크를 누르고 말하세요")
-text_prompt = st.chat_input("또는 글자로 입력하세요...")
+# 스트림릿 비밀 금고에서 엔비디아 API 키 불러오기
+API_KEY = st.secrets["NVIDIA_API_KEY"]
 
-user_input = audio_value if audio_value else text_prompt
+client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=API_KEY
+)
 
-if user_input:
-    with st.spinner("자비스가 대답을 준비 중입니다..."):
-        if audio_value:
-            contents = [
-                types.Part.from_bytes(data=audio_value.read(), mime_type="audio/wav"),
-                "사용자의 말을 듣고 친절하고 짧게 대답해줘."
-            ]
-        else:
-            contents = text_prompt
+text_prompt = st.chat_input("자비스에게 글자로 질문해 보세요...")
 
-        # 내 API 키로 쓸 수 있는 모든 Flash 모델 목록 자동 조회
-        available_models = ["gemini-3.8-flash"]
+if text_prompt:
+    with st.spinner("자비스가 생각 중입니다..."):
         try:
-            for m in client.models.list():
-                name = m.name.replace("models/", "")
-                if "flash" in name and name not in available_models:
-                    available_models.append(name)
-        except Exception:
-            pass
+            completion = client.chat.completions.create(
+                model="meta/llama-3.3-70b-instruct",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "너는 주인님을 돕는 AI 비서 자비스야. 항상 첫 인사나 자기소개가 필요할 때는 '안녕하세요 저는 AI 자비스입니다.'라고 말하고, 특수문자(*, # 등) 없이 자연스럽고 친절한 한국어 말투로 대답해줘."
+                    },
+                    {
+                        "role": "user",
+                        "content": text_prompt
+                    }
+                ],
+                temperature=0.5,
+                max_tokens=1024
+            )
 
-        reply_text = None
-        last_error = None
-
-        # 503 혼잡 시 최대 3번 재시도하며 한가한 모델로 자동 연결
-        for model_name in available_models[:4]:
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            system_instruction="너는 주인님을 돕는 똑똑한 AI 비서 자비스야. 특수문자(*, # 등) 없이 3문장 이내로 빠르고 자연스럽게 대답해줘."
-                        )
-                    )
-                    reply_text = response.text
-                    break
-                except Exception as e:
-                    last_error = e
-                    if "503" in str(e):
-                        time.sleep(2) # 2초 기다렸다 재시도
-                        continue
-                    else:
-                        break # 404 등 다른 에러면 다음 모델로 바로 이동
-            if reply_text:
-                break
-
-        if reply_text:
+            reply_text = completion.choices[0].message.content
             st.write(reply_text)
+
+            # 자비스 목소리로 읽어주기
             tts = gTTS(text=reply_text, lang='ko')
             sound_fp = io.BytesIO()
             tts.write_to_fp(sound_fp)
             st.audio(sound_fp, format="audio/mp3", autoplay=True)
-        else:
-            st.error(f"구글 서버가 매우 혼잡합니다. 10초 뒤 다시 시도해 주세요! (상세: {last_error})")
+
+        except Exception as e:
+            st.error(f"오류가 발생했어요! (상세 이유: {e})")
