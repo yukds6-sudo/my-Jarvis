@@ -36,7 +36,6 @@ text_prompt = st.chat_input("또는 글자로 입력하세요...")
 
 user_text = None
 
-# 마이크 녹음이 들어왔을 때 목소리를 글자로 변환하기
 if audio_value:
     recognizer = sr.Recognizer()
     try:
@@ -49,29 +48,60 @@ if audio_value:
 elif text_prompt:
     user_text = text_prompt
 
-# 4. 엔비디아 자비스가 생각하고 목소리로 대답하기
+# 4. 엔비디아 최신 AI 모델 자동 탐색 후 대답하기
 if user_text:
     with st.spinner("자비스가 생각 중입니다..."):
+        # 엔비디아 서버에서 현재 활성화된 무료 대화형 모델 목록 자동 조회
+        candidate_models = [
+            "meta/llama-4-scout-17b-16e-instruct",
+            "meta/llama-4-maverick-17b-128e-instruct",
+            "qwen/qwen3-235b-a22b",
+            "google/gemma-3-27b-it",
+            "mistralai/mistral-large-3-675b-instruct-2512"
+        ]
         try:
-            completion = client.chat.completions.create(
-                model="meta/llama-3.3-70b-instruct",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "너는 주인님을 돕는 AI 비서 자비스야. 항상 첫 인사나 자기소개가 필요할 때는 '안녕하세요 저는 AI 자비스입니다.'라고 말하고, 특수문자(*, # 등) 없이 자연스럽고 친절한 한국어 말투로 대답해줘."
-                    },
-                    {
-                        "role": "user",
-                        "content": user_text
-                    }
-                ],
-                temperature=0.5,
-                max_tokens=1024
-            )
+            live_models = [
+                m.id for m in client.models.list().data
+                if any(k in m.id.lower() for k in ["instruct", "llama", "qwen", "gemma", "deepseek"])
+                and "embed" not in m.id.lower()
+                and "guard" not in m.id.lower()
+                and "vision" not in m.id.lower()
+            ]
+            for m_id in live_models:
+                if m_id not in candidate_models:
+                    candidate_models.append(m_id)
+        except Exception:
+            pass
 
-            reply_text = completion.choices[0].message.content
+        reply_text = None
+        last_error = None
+
+        for model_name in candidate_models[:8]:
+            try:
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "너는 주인님을 돕는 AI 비서 자비스야. 항상 첫 인사나 자기소개가 필요할 때는 '안녕하세요 저는 AI 자비스입니다.'라고 말하고, 특수문자(*, # 등) 없이 자연스럽고 친절한 한국어 말투로 대답해줘."
+                        },
+                        {
+                            "role": "user",
+                            "content": user_text
+                        }
+                    ],
+                    temperature=0.5,
+                    max_tokens=1024
+                )
+                reply_text = completion.choices[0].message.content
+                if reply_text:
+                    break
+            except Exception as e:
+                last_error = e
+                continue
+
+        if reply_text:
             st.write(reply_text)
             speak(reply_text, auto=True)
-
-        except Exception as e:
-            st.error(f"오류가 발생했어요! (상세 이유: {e})")
+        else:
+            st.error(f"오류가 발생했어요! (상세 이유: {last_error})")
