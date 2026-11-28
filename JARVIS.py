@@ -1,6 +1,7 @@
 import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
+import speech_recognition as sr
 import io
 
 st.set_page_config(page_title="자비스", page_icon="🎙️")
@@ -29,10 +30,27 @@ client = OpenAI(
     api_key=API_KEY
 )
 
-# 3. 질문 입력 및 자비스 대답 + 목소리 출력
-text_prompt = st.chat_input("자비스에게 글자로 질문해 보세요...")
+# 3. 마이크 음성 입력 & 글자 입력
+audio_value = st.audio_input("🎤 마이크를 누르고 말하세요")
+text_prompt = st.chat_input("또는 글자로 입력하세요...")
 
-if text_prompt:
+user_text = None
+
+# 마이크 녹음이 들어왔을 때 목소리를 글자로 변환하기
+if audio_value:
+    recognizer = sr.Recognizer()
+    try:
+        with sr.AudioFile(audio_value) as source:
+            audio_data = recognizer.record(source)
+            user_text = recognizer.recognize_google(audio_data, language="ko-KR")
+            st.success(f"🗣️ 내가 한 말: {user_text}")
+    except Exception:
+        st.warning("목소리를 잘 듣지 못했어요. 마이크 가까이에서 다시 한 번 말씀해 주세요!")
+elif text_prompt:
+    user_text = text_prompt
+
+# 4. 엔비디아 자비스가 생각하고 목소리로 대답하기
+if user_text:
     with st.spinner("자비스가 생각 중입니다..."):
         try:
             completion = client.chat.completions.create(
@@ -44,7 +62,7 @@ if text_prompt:
                     },
                     {
                         "role": "user",
-                        "content": text_prompt
+                        "content": user_text
                     }
                 ],
                 temperature=0.5,
@@ -53,8 +71,6 @@ if text_prompt:
 
             reply_text = completion.choices[0].message.content
             st.write(reply_text)
-            
-            # 자비스의 대답을 목소리로 읽어주기
             speak(reply_text, auto=True)
 
         except Exception as e:
