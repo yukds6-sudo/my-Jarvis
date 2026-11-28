@@ -15,7 +15,7 @@ def speak(text, auto=True):
     sound_fp.seek(0)
     st.audio(sound_fp, format="audio/mp3", autoplay=auto)
 
-# 1. 첫 인사 멘트 (앱 처음 켰을 때 딱 한 번만 출력)
+# 1. 첫 인사 멘트
 welcome_msg = "안녕하세요 저는 AI 자비스입니다."
 st.info(welcome_msg)
 
@@ -39,10 +39,8 @@ text_prompt = st.chat_input("또는 글자로 입력하세요...")
 
 user_text = None
 
-# 새로운 글자 입력이 들어왔을 때 최우선 처리
 if text_prompt:
     user_text = text_prompt
-# 새로운 마이크 녹음이 들어왔을 때만 음성 인식 실행 (예전 녹음 중복 방지)
 elif audio_value is not None and audio_value.file_id != st.session_state.last_audio_id:
     st.session_state.last_audio_id = audio_value.file_id
     recognizer = sr.Recognizer()
@@ -54,40 +52,53 @@ elif audio_value is not None and audio_value.file_id != st.session_state.last_au
     except Exception:
         st.warning("목소리를 잘 듣지 못했어요. 마이크 가까이에서 다시 한 번 말씀해 주세요!")
 
-# 4. 질문에 맞춰 정확히 대답하기
+# 4. 특수 모델(orpheus, whisper, guard 등)을 완전히 제외하고 순수 대화 모델만 자동 선택
 if user_text:
     with st.spinner("자비스가 생각 중입니다..."):
         try:
-            # Groq에서 가장 한국어를 잘하는 고성능 대화 모델 우선 선택
             all_models = [m.id for m in client.models.list().data]
-            preferred = [
-                "meta-llama/llama-4-maverick-17b-128e-instruct",
-                "meta-llama/llama-4-scout-17b-16e-instruct",
-                "llama-3.3-70b-versatile",
-                "qwen/qwen3-32b",
-                "llama-3.1-8b-instant"
+            # 대화용이 아닌 특수 모델(음성, 보안, 약관필수 모델) 모두 제외
+            banned_words = ["orpheus", "whisper", "guard", "tts", "playai", "canopylabs", "embed"]
+            chat_models = [
+                m for m in all_models
+                if not any(bad in m.lower() for bad in banned_words)
             ]
-            active_model = next((m for m in preferred if m in all_models), all_models[0])
+            # 한국어 대화가 뛰어난 llama / qwen / gemma 모델을 맨 앞으로 정렬
+            chat_models.sort(key=lambda x: (0 if any(k in x.lower() for k in ["llama", "qwen", "gemma"]) else 1, x))
 
-            completion = client.chat.completions.create(
-                model=active_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "너는 주인님의 질문에 정확하고 친절하게 대답하는 유능한 한국어 AI 비서 자비스야. 자기소개는 반복하지 말고 주인님이 물어본 질문의 핵심 답만 특수문자(*, # 등) 없이 3문장 이내로 자연스럽게 말해줘."
-                    },
-                    {
-                        "role": "user",
-                        "content": user_text
-                    }
-                ],
-                temperature=0.7,
-                max_tokens=512
-            )
+            reply_text = None
+            last_err = None
 
-            reply_text = completion.choices[0].message.content
-            st.write(reply_text)
-            speak(reply_text, auto=True)
+            # 순수 대화 모델 목록을 순서대로 시도하여 첫 번째 성공한 모델로 응답
+            for model_name in chat_models[:5]:
+                try:
+                    completion = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "너는 주인님의 질문에 정확하고 친절하게 대답하는 유능한 한국어 AI 비서 자비스야. 자기소개는 반복하지 말고 주인님이 물어본 질문의 핵심 답만 특수문자(*, # 등) 없이 3문장 이내로 자연스럽게 말해줘."
+                            },
+                            {
+                                "role": "user",
+                                "content": user_text
+                            }
+                        ],
+                        temperature=0.7,
+                        max_tokens=512
+                    )
+                    reply_text = completion.choices[0].message.content
+                    if reply_text:
+                        break
+                except Exception as e:
+                    last_err = e
+                    continue
+
+            if reply_text:
+                st.write(reply_text)
+                speak(reply_text, auto=True)
+            else:
+                st.error(f"오류가 발생했어요! (상세 이유: {last_err})")
 
         except Exception as e:
             st.error(f"오류가 발생했어요! (상세 이유: {e})")
