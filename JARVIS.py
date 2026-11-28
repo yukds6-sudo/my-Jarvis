@@ -15,13 +15,16 @@ def speak(text, auto=True):
     sound_fp.seek(0)
     st.audio(sound_fp, format="audio/mp3", autoplay=auto)
 
-# 1. 첫 인사 멘트
+# 1. 첫 인사 멘트 (앱 처음 켰을 때 딱 한 번만 출력)
 welcome_msg = "안녕하세요 저는 AI 자비스입니다."
 st.info(welcome_msg)
 
 if "welcomed" not in st.session_state:
     speak(welcome_msg, auto=True)
     st.session_state.welcomed = True
+
+if "last_audio_id" not in st.session_state:
+    st.session_state.last_audio_id = None
 
 # 2. 초고속 Groq 무료 API 연결
 API_KEY = st.secrets["GROQ_API_KEY"]
@@ -36,7 +39,12 @@ text_prompt = st.chat_input("또는 글자로 입력하세요...")
 
 user_text = None
 
-if audio_value:
+# 새로운 글자 입력이 들어왔을 때 최우선 처리
+if text_prompt:
+    user_text = text_prompt
+# 새로운 마이크 녹음이 들어왔을 때만 음성 인식 실행 (예전 녹음 중복 방지)
+elif audio_value is not None and audio_value.file_id != st.session_state.last_audio_id:
+    st.session_state.last_audio_id = audio_value.file_id
     recognizer = sr.Recognizer()
     try:
         with sr.AudioFile(audio_value) as source:
@@ -45,36 +53,35 @@ if audio_value:
             st.success(f"🗣️ 내가 한 말: {user_text}")
     except Exception:
         st.warning("목소리를 잘 듣지 못했어요. 마이크 가까이에서 다시 한 번 말씀해 주세요!")
-elif text_prompt:
-    user_text = text_prompt
 
-# 4. Groq 서버에서 현재 활성화된 대화 모델을 자동으로 찾아 즉시 대답하기
+# 4. 질문에 맞춰 정확히 대답하기
 if user_text:
     with st.spinner("자비스가 생각 중입니다..."):
         try:
-            # Groq 서버에서 현재 살아있는 모델 목록 자동 조회 (음성인식 whisper, 보안 guard 제외)
+            # Groq에서 가장 한국어를 잘하는 고성능 대화 모델 우선 선택
             all_models = [m.id for m in client.models.list().data]
-            chat_models = [
-                m for m in all_models
-                if not any(bad in m.lower() for bad in ["whisper", "guard", "tts", "playai"])
+            preferred = [
+                "meta-llama/llama-4-maverick-17b-128e-instruct",
+                "meta-llama/llama-4-scout-17b-16e-instruct",
+                "llama-3.3-70b-versatile",
+                "qwen/qwen3-32b",
+                "llama-3.1-8b-instant"
             ]
-            # 가장 최신 llama / qwen 계열 우선 선택
-            chat_models.sort(key=lambda x: (0 if any(k in x.lower() for k in ["llama-4", "llama-3", "qwen", "gemma"]) else 1, x))
-            active_model = chat_models[0]
+            active_model = next((m for m in preferred if m in all_models), all_models[0])
 
             completion = client.chat.completions.create(
                 model=active_model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "너는 주인님을 돕는 AI 비서 자비스야. 항상 첫 인사나 자기소개가 필요할 때는 '안녕하세요 저는 AI 자비스입니다.'라고 말하고, 특수문자(*, # 등) 없이 3문장 이내로 빠르고 친절한 한국어 말투로 대답해줘."
+                        "content": "너는 주인님의 질문에 정확하고 친절하게 대답하는 유능한 한국어 AI 비서 자비스야. 자기소개는 반복하지 말고 주인님이 물어본 질문의 핵심 답만 특수문자(*, # 등) 없이 3문장 이내로 자연스럽게 말해줘."
                     },
                     {
                         "role": "user",
                         "content": user_text
                     }
                 ],
-                temperature=0.5,
+                temperature=0.7,
                 max_tokens=512
             )
 
