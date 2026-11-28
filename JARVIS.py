@@ -48,12 +48,22 @@ if audio_value:
 elif text_prompt:
     user_text = text_prompt
 
-# 4. 0.5초 만에 대답하고 목소리로 읽어주기
+# 4. Groq 서버에서 현재 활성화된 대화 모델을 자동으로 찾아 즉시 대답하기
 if user_text:
     with st.spinner("자비스가 생각 중입니다..."):
         try:
+            # Groq 서버에서 현재 살아있는 모델 목록 자동 조회 (음성인식 whisper, 보안 guard 제외)
+            all_models = [m.id for m in client.models.list().data]
+            chat_models = [
+                m for m in all_models
+                if not any(bad in m.lower() for bad in ["whisper", "guard", "tts", "playai"])
+            ]
+            # 가장 최신 llama / qwen 계열 우선 선택
+            chat_models.sort(key=lambda x: (0 if any(k in x.lower() for k in ["llama-4", "llama-3", "qwen", "gemma"]) else 1, x))
+            active_model = chat_models[0]
+
             completion = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=active_model,
                 messages=[
                     {
                         "role": "system",
